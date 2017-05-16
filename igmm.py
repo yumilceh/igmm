@@ -33,7 +33,7 @@ class IGMM(GMM):
         GMM.__init__(self, n_components=min_components,
                      covariance_type='full',
                      random_state=None,
-                     thresh=None,
+                     #thresh=None,
                      tol = 0.001,
                      min_covar=0.0001,
                      n_iter=100,

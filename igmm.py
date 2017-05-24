@@ -3,7 +3,7 @@ Created on April,2017
 
 @author: Juan Manuel Acevedo Valle
 """
-from sklearn.mixture import GMM
+from sklearn.mixture import GaussianMixture as GMM
 import itertools
 from scipy import linalg
 import matplotlib as mpl
@@ -31,15 +31,7 @@ class IGMM(GMM):
                  plot=False, plot_dims=[0, 1]):
 
         GMM.__init__(self, n_components=min_components,
-                     covariance_type='full',
-                     random_state=None,
-                     #thresh=None,
-                     tol = 0.001,
-                     min_covar=0.0001,
-                     n_iter=100,
-                     n_init=1,
-                     params='wmc',
-                     init_params='wmc')
+                     covariance_type='full')
 
         self.params = {'init_components': min_components,
                        'max_step_components': max_step_components,
@@ -134,15 +126,7 @@ class IGMM(GMM):
         for n_components in n_components_range:
             # Fit a mixture of Gaussians with EM, beware for cases where te model is not found in any case
             gmm = GMM(n_components=n_components,
-                          covariance_type='full',
-                          random_state=None,
-                          #thresh=None,
-                          tol=0.001,
-                          min_covar=0.0001,
-                          n_iter=100,
-                          n_init=1,
-                          params='wmc',
-                          init_params='wmc')
+                          covariance_type='full')
             gmm.fit(data)
             bic.append(gmm.bic(data))
             aic.append(gmm.aic(data))
@@ -162,19 +146,11 @@ class IGMM(GMM):
             best_gmm = np.array(bic).argmin() + lims[0]
 
         gmm = GMM(n_components=best_gmm,
-                      covariance_type='full',
-                      random_state=None,
-                      #thresh=None,
-                      tol=0.001,
-                      min_covar=0.0001,
-                      n_iter=100,
-                      n_init=1,
-                      params='wmc',
-                      init_params='wmc')
+                      covariance_type='full')
         gmm.fit(data)
 
         self.weights_ = gmm.weights_
-        self.covars_ = gmm._get_covars()
+        self.covariances_ = gmm.covariances_ # self.covariances_ = gmm._get_covars()
         self.means_ = gmm.means_
         self.n_components = gmm.n_components
 
@@ -184,7 +160,7 @@ class IGMM(GMM):
         '''
         copy_tmp = GMM(n_components=self.n_components)
 
-        copy_tmp.covars_ = self._get_covars()
+        copy_tmp.covariances_ = self.covariances_ #_get_covars()
         copy_tmp.means_ = self.means_
         copy_tmp.weights_ = self.weights_
 
@@ -207,7 +183,7 @@ class IGMM(GMM):
 
         gmm = self
         Mu_tmp = gmm.means_[voters_idx]
-        Sigma_tmp = gmm._get_covars()[voters_idx]
+        Sigma_tmp = gmm.covariances_[voters_idx] #_get_covars()[voters_idx]
 
         y = np.mat(y)
         n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims))
@@ -308,7 +284,7 @@ class IGMM(GMM):
                          forgetting_factor=self.params['forgetting_factor'],
                          plot=False)
 
-        copy_tmp.covars_ = self._get_covars()
+        copy_tmp.covariances_ = self.covariances_ #_get_covars()
         copy_tmp.means_ = self.means_
         copy_tmp.weights_ = self.weights_
 
@@ -316,55 +292,55 @@ class IGMM(GMM):
         return copy_tmp
 
     def mergeGMM(self, gmm2):
-        covars_ = self._get_covars()
+        covariances_ = self.covariances_ #_get_covars()
         means_ = self.means_
         weights_ = self.weights_
 
-        covars_2 = gmm2._get_covars()
+        covariances_2 = gmm2.covariances_ #_get_covars()
         means_2 = gmm2.means_
         weights_2 = gmm2.weights_
 
         new_components = weights_2.shape[0]
         for i in range(new_components):
-            covars_ = np.insert(covars_, [-1], covars_2[i], axis=0)
+            covariances_ = np.insert(covariances_, [-1], covariances_2[i], axis=0)
             means_ = np.insert(means_, [-1], means_2[i], axis=0)
             weights_ = np.insert(weights_, [-1], weights_2[i], axis=0)
 
-        self.covars_ = covars_
+        self.covariances_ = covariances_
         self.means_ = means_
         self.weights_ = weights_
         self.n_components = self.n_components + new_components
 
     def mergeGMMComponents(self, gmm2, index1, index2):
-        gauss1 = {'covariance': self._get_covars()[index1],
+        gauss1 = {'covariance': self.covariances_[index1], #_get_covars()[index1],
                   'mean': self.means_[index1],
                   'weight': self.weights_[index1]}
-        gauss2 = {'covariance': gmm2._get_covars()[index2],
+        gauss2 = {'covariance': gmm2.covariances_[index2], #_get_covars()[index2],
                   'mean': gmm2.means_[index2],
                   'weight': gmm2.weights_[index2]}
         gauss = merge_gaussians(gauss1, gauss2)
 
-        covars_1 = self._get_covars()
+        covariances_1 = self.covariances_ #_get_covars()
         means_1 = self.means_
         weights_1 = self.weights_
 
-        covars_1[index1] = gauss['covariance']
+        covariances_1[index1] = gauss['covariance']
         means_1[index1] = gauss['mean']
         weights_1[index1] = gauss['weight']
 
-        covars_2 = gmm2._get_covars()
+        covariances_2 = gmm2.covariances_ #_get_covars()
         means_2 = gmm2.means_
         weights_2 = gmm2.weights_
 
-        covars_2 = np.delete(covars_2, index2, 0)
+        covariances_2 = np.delete(covariances_2, index2, 0)
         means_2 = np.delete(means_2, index2, 0)
         weights_2 = np.delete(weights_2, index2, 0)
 
-        self.covars_ = covars_1
+        self.covariances_ = covariances_1
         self.means_ = means_1
         self.weights_ = weights_1
 
-        gmm2.covars_ = covars_2
+        gmm2.covariances_ = covariances_2
         gmm2.means_ = means_2
         gmm2.weights_ = weights_2
         gmm2.n_components = gmm2.n_components - 1
@@ -372,51 +348,51 @@ class IGMM(GMM):
         return gmm2
 
     def mergeGaussians(self, index1, index2):
-        gauss1 = {'covariance': self._get_covars()[index1],
+        gauss1 = {'covariance': self.covariances_[index1], #_get_covars()[index1],
                   'mean': self.means_[index1],
                   'weight': self.weights_[index1]}
-        gauss2 = {'covariance': self._get_covars()[index2],
+        gauss2 = {'covariance': self.covariances_[index2], #_get_covars()[index2],
                   'mean': self.means_[index2],
                   'weight': self.weights_[index2]}
         gauss = merge_gaussians(gauss1, gauss2)
 
-        covars_ = self._get_covars()
+        covariances_ = self.covariances_ #_get_covars()
         means_ = self.means_
         weights_ = self.weights_
 
-        covars_[index1] = gauss['covariance']
+        covariances_[index1] = gauss['covariance']
         means_[index1] = gauss['mean']
         weights_[index1] = gauss['weight']
 
-        covars_ = np.delete(covars_, index2, 0)
+        covariances_ = np.delete(covariances_, index2, 0)
         means_ = np.delete(means_, index2, 0)
         weights_ = np.delete(weights_, index2, 0)
 
-        self.covars_ = covars_
+        self.covariances_ = covariances_
         self.means_ = means_
         self.weights_ = weights_
         self.n_components = self.n_components - 1
 
     def splitGaussian(self, index):
-        gauss = {'covariance': self._get_covars()[index],
+        gauss = {'covariance': self.covariances_[index], #_get_covars()[index],
                  'mean': self.means_[index],
                  'weight': self.weights_[index]}
 
         gauss1, gauss2 = split_gaussian(gauss, self.params['a_split'])
 
-        covars_ = self._get_covars()
+        covariances_ = self.covariances_ #_get_covars()
         means_ = self.means_
         weights_ = self.weights_
 
-        covars_[index] = gauss1['covariance']
+        covariances_[index] = gauss1['covariance']
         means_[index] = gauss1['mean']
         weights_[index] = gauss1['weight']
 
-        covars_ = np.insert(covars_, [-1], gauss2['covariance'], axis=0)
+        covariances_ = np.insert(covariances_, [-1], gauss2['covariance'], axis=0)
         means_ = np.insert(means_, [-1], gauss2['mean'], axis=0)
         weights_ = np.insert(weights_, [-1], gauss2['weight'], axis=0)
 
-        self.covars_ = covars_
+        self.covariances_ = covariances_
         self.means_ = means_
         self.weights_ = weights_
         self.n_components = self.n_components + 1
@@ -436,7 +412,7 @@ class IGMM(GMM):
 
         plt.sca(axes)
 
-        for i, (mean, covar, color) in enumerate(zip(gmm.means_, gmm._get_covars(), color_iter)):
+        for i, (mean, covar, color) in enumerate(zip(gmm.means_, gmm.covariances_, color_iter)):#gmm._get_covars(), color_iter)):
             covar_plt = np.zeros((2, 2))
 
             covar_plt[0, 0] = covar[column1, column1]
@@ -477,7 +453,7 @@ class IGMM(GMM):
         plt.sca(axes)
         covar_plt = np.zeros((2, 2))
 
-        covar = gmm._get_covars()[k]
+        covar = gmm.covariances_[k] #_get_covars()[k]
         covar_plt[0, 0] = covar[column1, column1]
         covar_plt[1, 1] = covar[column2, column2]
         covar_plt[0, 1] = covar[column1, column2]
@@ -514,7 +490,7 @@ class IGMM(GMM):
             f, axes = plt.subplots(1, 1)
         plt.sca(axes)
 
-        for i, (mean, covar, color) in enumerate(zip(gmm.means_, gmm._get_covars(), color_iter)):
+        for i, (mean, covar, color) in enumerate(zip(gmm.means_, gmm.covariances_, color_iter)): #_get_covars(), color_iter)):
             covar_plt = np.zeros((3, 3))
 
             covar_plt[0, 0] = covar[column1, column1]
@@ -585,9 +561,9 @@ def get_similarity_matrix(gmm1, gmm2):
     n_comp_2 = gmm2.n_components
 
     similarity_matrix = np.zeros((n_comp_1, n_comp_2))
-    for i, (Mu, Sigma) in enumerate(zip(gmm1.means_, gmm1._get_covars())):
+    for i, (Mu, Sigma) in enumerate(zip(gmm1.means_, gmm1.covariances_)):
         gauss1 = {'covariance': Sigma, 'mean': Mu}
-        for j, (Mu2, Sigma2) in enumerate(zip(gmm2.means_, gmm2._get_covars())):
+        for j, (Mu2, Sigma2) in enumerate(zip(gmm2.means_, gmm2.covariances_)):
             gauss2 = {'covariance': Sigma2, 'mean': Mu2}
             similarity_matrix[i, j] = get_similarity_estimation(gauss1, gauss2)
 

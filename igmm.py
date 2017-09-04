@@ -155,8 +155,8 @@ class IGMM(GMM):
         self.n_components = gmm.n_components
 
     def return_copy(self):
-        '''If any trouble be sure that assignation of 
-            means and weights is done copying through assignation        
+        '''If any trouble be sure that assignation of
+            means and weights is done copying through assignation
         '''
         copy_tmp = GMM(n_components=self.n_components)
 
@@ -527,6 +527,9 @@ class IGMM(GMM):
         if axes.get_title() == '':
             axes.set_title(title)
         return axes
+        
+    def getGaussians(self):
+        return (self.means_, self.covariances_, self.weights_)
 
 
 def get_KL_divergence(gauss1, gauss2):

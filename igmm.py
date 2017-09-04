@@ -79,6 +79,9 @@ class IGMM(GMM):
             gmm_new = self.merge_similar_gaussians_in_gmm_minim(gmm_new)
             self.mergeGMM(gmm_new)
 
+            self.weights_=self.weights_/sum(self.weights_) #Regularization
+
+
             if self.params['plot']:
                 self.ax_old[1].clear()
                 self.ax_old[2].clear()
@@ -169,13 +172,12 @@ class IGMM(GMM):
     def get_bic(self, data):
         return self.bic(data)
 
-    def infer(self, x_dims, y_dims, y):
+    def infer(self, x_dims, y_dims, y, knn=5):
         """
             This method returns the value of x that maximaze the probability P(x|y)
         """
         y_tmp = np.array(y)
         dist = []
-        knn = 5
         for mu in self.means_:
             dist += [linalg.norm(y_tmp - mu[y_dims])]
         dist = np.array(dist).flatten()

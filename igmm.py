@@ -28,6 +28,8 @@ class IGMM(GMM):
                  max_components=60,
                  a_split=0.8,
                  forgetting_factor=0.05,
+                 x_dims=None,
+                 y_dims=None,
                  plot=False, plot_dims=[0, 1]):
 
         GMM.__init__(self, n_components=min_components,
@@ -39,7 +41,13 @@ class IGMM(GMM):
                        'a_split': a_split,
                        'plot': plot,
                        'plot_dims': plot_dims,
-                       'forgetting_factor': forgetting_factor}
+                       'forgetting_factor': forgetting_factor,
+                       'x_dims': x_dims,
+                       'y_dims': y_dims,
+                       'infer_fixed': False}
+
+        if x_dims is not None and y_dims is not None:
+            self.params['infer_fixed'] = True
 
         self.type='IGMM'
         self.initialized=False
@@ -118,6 +126,27 @@ class IGMM(GMM):
                 self.ax_old[2].autoscale_view()
                 self.fig_old.canvas.draw()
 
+        if self.params['infer_fixed']:
+            y_dims = self.params['y_dims']
+            x_dims = self.params['x_dims']
+            SIGMA_YY_inv = np.zeros((self.n_components,len(y_dims),len(y_dims)))
+            SIGMA_XY = np.zeros((self.n_components,len(x_dims),len(y_dims)))
+
+            for k, (Mu, Sigma) in enumerate(zip(self.means_, self.covariances_)):
+                Sigma_yy = Sigma[:, y_dims]
+                Sigma_yy = Sigma_yy[y_dims, :]
+
+                Sigma_xy = Sigma[x_dims, :]
+                Sigma_xy = Sigma_xy[:, y_dims]
+                Sigma_yy_inv = linalg.inv(Sigma_yy)
+
+                SIGMA_YY_inv[k,:,:] = Sigma_yy_inv
+                SIGMA_XY[k,:, :] = Sigma_xy
+
+            self.SIGMA_YY_inv = SIGMA_YY_inv
+            self.SIGMA_XY = SIGMA_XY
+
+
     def get_best_gmm(self, data, lims=[1, 10]):
         lowest_bic = np.infty
         bic = []
@@ -176,48 +205,90 @@ class IGMM(GMM):
         """
             This method returns the value of x that maximaze the probability P(x|y)
         """
-        y_tmp = np.array(y)
-        dist = []
-        for mu in self.means_:
-            dist += [linalg.norm(y_tmp - mu[y_dims])]
-        dist = np.array(dist).flatten()
-        voters_idx = dist.argsort()[:knn]
+        if self.params['infer_fixed']:
+            y_tmp = np.array(y)
+            dist = []
+            for mu in self.means_:
+                dist += [linalg.norm(y_tmp - mu[y_dims])]
+            dist = np.array(dist).flatten()
+            voters_idx = dist.argsort()[:knn]
 
-        gmm = self
-        Mu_tmp = gmm.means_[voters_idx]
-        Sigma_tmp = gmm.covariances_[voters_idx] #_get_covars()[voters_idx]
+            gmm = self
+            Mu_tmp = gmm.means_[voters_idx]
+            Sigma_tmp = gmm.covariances_[voters_idx]
+            Sigma_yy_inv_tmp = self.SIGMA_YY_inv[voters_idx]  # _get_covars()[voters_idx]
+            Sigma_xy_tmp = self.SIGMA_XY[voters_idx]
 
-        y = np.mat(y)
-        n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims))
-        likely_x = np.mat(np.zeros((len(x_dims), knn)))
-        sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
-        p_xy = np.mat(np.zeros((knn, 1)))
+            y = np.mat(y)
+            n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims)) #secure (x,y)_dims to avoid errors
+            likely_x = np.mat(np.zeros((len(x_dims), knn)))
+            sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
+            p_xy = np.mat(np.zeros((knn, 1)))
 
-        for k, (Mu, Sigma) in enumerate(zip(Mu_tmp, Sigma_tmp)):
-            Mu = np.transpose(Mu)
-            # ----------------------------------------------- Sigma=np.mat(Sigma)
-            Sigma_yy = Sigma[:, y_dims]
-            Sigma_yy = Sigma_yy[y_dims, :]
+            for k, (Mu, Sigma_yy_inv, Sigma_xy, Sigma) in enumerate(zip(Mu_tmp, Sigma_yy_inv_tmp, Sigma_xy_tmp, Sigma_tmp)):
+                Mu = np.transpose(Mu)
+                # ----------------------------------------------- Sigma=np.mat(Sigma)
+                tmp1 = Sigma_yy_inv * np.transpose(y - Mu[y_dims])
+                tmp2 = np.transpose(Sigma_xy * tmp1)
+                likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
 
-            Sigma_xy = Sigma[x_dims, :]
-            Sigma_xy = Sigma_xy[:, y_dims]
-            tmp1 = linalg.inv(Sigma_yy) * np.transpose(y - Mu[y_dims])
-            tmp2 = np.transpose(Sigma_xy * tmp1)
-            likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
+                sm[x_dims, k] = likely_x[:, k].flatten()
+                sm[y_dims, k] = y.flatten()
 
-            sm[x_dims, k] = likely_x[:, k].flatten()
-            sm[y_dims, k] = y.flatten()
+                tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma)))) #It is possible to predifine
+                                                                                                  #the determinant too
+                tmp5 = np.transpose(sm[:, k]) - (Mu)
+                tmp6 = linalg.inv(Sigma)
+                tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
+                p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
 
-            tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma))))
-            tmp5 = np.transpose(sm[:, k]) - (Mu)
-            tmp6 = linalg.inv(Sigma)
-            tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
-            p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
+            k_ok = np.argmax(p_xy)
+            x = likely_x[:, k_ok]
 
-        k_ok = np.argmax(p_xy)
-        x = likely_x[:, k_ok]
+            return np.array(x.transpose())[0]
+        else:
+            y_tmp = np.array(y)
+            dist = []
+            for mu in self.means_:
+                dist += [linalg.norm(y_tmp - mu[y_dims])]
+            dist = np.array(dist).flatten()
+            voters_idx = dist.argsort()[:knn]
 
-        return np.array(x.transpose())[0]
+            gmm = self
+            Mu_tmp = gmm.means_[voters_idx]
+            Sigma_tmp = gmm.covariances_[voters_idx] #_get_covars()[voters_idx]
+
+            y = np.mat(y)
+            n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims))
+            likely_x = np.mat(np.zeros((len(x_dims), knn)))
+            sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
+            p_xy = np.mat(np.zeros((knn, 1)))
+
+            for k, (Mu, Sigma) in enumerate(zip(Mu_tmp, Sigma_tmp)):
+                Mu = np.transpose(Mu)
+                # ----------------------------------------------- Sigma=np.mat(Sigma)
+                Sigma_yy = Sigma[:, y_dims]
+                Sigma_yy = Sigma_yy[y_dims, :]
+
+                Sigma_xy = Sigma[x_dims, :]
+                Sigma_xy = Sigma_xy[:, y_dims]
+                tmp1 = linalg.inv(Sigma_yy) * np.transpose(y - Mu[y_dims])
+                tmp2 = np.transpose(Sigma_xy * tmp1)
+                likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
+
+                sm[x_dims, k] = likely_x[:, k].flatten()
+                sm[y_dims, k] = y.flatten()
+
+                tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma))))
+                tmp5 = np.transpose(sm[:, k]) - (Mu)
+                tmp6 = linalg.inv(Sigma)
+                tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
+                p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
+
+            k_ok = np.argmax(p_xy)
+            x = likely_x[:, k_ok]
+
+            return np.array(x.transpose())[0]
 
     def merge_similar_gaussians_in_gmm_full(self, gmm2):
         # Selecting high related Gaussians to be mixtured

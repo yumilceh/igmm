@@ -74,12 +74,11 @@ class IGMM(GMM):
             self.short_term_model.get_best_gmm(data,
                                                lims=[self.params['init_components'], self.params['max_step_components']])
             weights_st = self.short_term_model.weights_
-            weights_st = self.params['forgetting_factor'] * weights_st
+            weights_st = self.params['forgetting_factor'].get_value() * weights_st
             self.short_term_model.weights_ = weights_st
 
             weights_lt = self.weights_
-            weights_lt = (self.weights_.sum() - self.params[
-                'forgetting_factor']) * weights_lt  # Regularization to keep sum(w)=1.0
+            weights_lt = (self.weights_.sum() - self.params['forgetting_factor'].get_value()) * weights_lt  # Regularization to keep sum(w)=1.0
             self.weights_ = weights_lt
 
             gmm_new = copy.deepcopy(self.short_term_model)

@@ -67,6 +67,20 @@ class DynamicParameter(object):
                 return self.get_value()
             return copy.copy(self.values[self.idx])
 
+    def generate_log(self):
+        log = 'type: DynamicParameter\n'
+        for key in self.conf.keys():
+            try:
+                attr_log = self.conf[key].generate_log()
+                log+=(key + ': {\n')
+                log+=(attr_log)
+                log+=('}\n')
+            except IndexError:
+                print("INDEX ERROR in IGMM log generation")
+            except AttributeError:
+                log+=(key + ': ' + str(self.conf[key]) + '\n')
+        return log
+
     def __print__(self):
         return str(self.value())
 

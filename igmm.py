@@ -15,9 +15,7 @@ from scipy import linalg as LA
 from numpy import linalg
 
 
-import Tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
 
 class DynamicParameter(object):
     def __init__(self, *args, **conf):
@@ -88,6 +86,9 @@ class IGMM(GMM):
 
         GMM.__init__(self, n_components=min_components,
                      covariance_type='full')
+
+        if isinstance(forgetting_factor, float):
+            forgetting_factor = DynamicParameter(forgetting_factor)
 
         self.params = {'init_components': min_components,
                        'max_step_components': max_step_components,
@@ -655,13 +656,52 @@ class IGMM(GMM):
             axes.set_title(title)
         return axes
 
+def load_gmm(file_prefix):
+    file_weights = file_prefix + 'GMM_weights.txt'
+    file_covariances = file_prefix + 'GMM_covariances.txt'
+    file_means = file_prefix + 'GMM_means.txt'
+    Weights = np.loadtxt(file_weights)
+    raw_Means = np.loadtxt(file_means)
+    raw_Sigma = np.loadtxt(file_covariances)
+    n_components = len(Weights)
+    n_dims =  raw_Means.shape[0]
+    Means = []
+    Sigma = []
+    for i in range(n_components):
+        Means.append(raw_Means[:, i])
+        Sigma.append(raw_Sigma[:, i * n_dims:(i + 1) * n_dims])
+
+    gmm = GMM()
+    gmm.weights_ = Weights
+    gmm.means_ = Means
+    gmm.covariances_ = Sigma
+    gmm.n_components = n_components
+    return gmm
+
+def save_gmm(gmm, file_prefix=''):
+    file_weights = file_prefix + 'GMM_weights.txt'
+    file_covariances = file_prefix + 'GMM_covariances.txt'
+    file_means = file_prefix + 'GMM_means.txt'
+    n_components = gmm.n_components
+    n_dims = len(gmm.means_[0])
+
+    raw_Means = np.zeros((n_dims, n_components))
+    raw_Covariances = np.zeros((n_dims, n_dims * n_components))
+    raw_Weights = np.zeros((1, n_components))
+
+    for k, (Weights, Means, Covariances) in enumerate(zip(gmm.weights_, gmm.means_, gmm.covariances_)):
+        raw_Means[:, k] = Means
+        raw_Covariances[:, k * n_dims:(k + 1) * n_dims] = Covariances
+        raw_Weights[0, k] = Weights
+    np.savetxt(file_weights, raw_Weights, fmt='%f')
+    np.savetxt(file_means, raw_Means, fmt='%f')
+    np.savetxt(file_covariances, raw_Covariances, fmt='%f')
 
 def get_KL_divergence(gauss1, gauss2):
     try:
         detC1 = LA.det(gauss1['covariance'])
     except ValueError:
         x = raw_input("Broken")
-        pass
         pass
 
     detC2 = LA.det(gauss2['covariance'])

@@ -650,7 +650,6 @@ def get_KL_divergence(gauss1, gauss2):
     except ValueError:
         x = raw_input("Broken")
         pass
-        pass
 
     detC2 = LA.det(gauss2['covariance'])
     logC2C1 = np.log(detC2 / detC1)

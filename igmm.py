@@ -17,6 +17,58 @@ from numpy import linalg
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+class DynamicParameter(object):
+    def __init__(self, *args, **conf):
+        self.default_params()
+        if len(args) > 1:
+            raise ValueError
+        elif len(args) == 1:
+            if isinstance(args[0], float):
+                self.values = args[0]
+        elif len(conf.keys())>0:
+            self.conf['is_constant'] = False
+            for key in conf.keys():
+                self.conf[key] = conf[key]
+            if self.conf['function'] is 'log':
+                self.log_evolution()
+            elif self.conf['function'] is 'linear':
+                self.linear_evolution()
+        else:
+            self.default_params()
+
+    def log_evolution(self):
+        init_val = self.conf['init']
+        end_val = self.conf['end']
+        steps = self.conf['steps']
+        self.values = np.logspace(np.log(init_val), np.log(end_val), num=steps, base=np.exp(1))
+        self.idx = -1
+        self.conf['max_idx'] = steps - 1
+
+    def linear_evolution(self):
+        init_val = self.conf['init']
+        end_val = self.conf['end']
+        steps = self.conf['steps']
+        self.values = np.linspace(init_val, end_val, num=steps)
+        self.idx = -1
+        self.conf['max_idx'] = steps - 1
+
+    def default_params(self):
+        self.conf = {'is_constant':True}
+        self.values = 0.05
+
+    def get_value(self):
+        if self.conf['is_constant']:
+            return copy.copy(self.values)
+        else:
+            self.idx += 1
+            if self.idx >self.conf['max_idx']:
+                self.conf['is_constant'] = True
+                self.values = copy.copy(self.values[-1])
+                return self.get_value()
+            return copy.copy(self.values[self.idx])
+
+    def __print__(self):
+        return str(self.value())
 
 class IGMM(GMM):
     '''
@@ -27,7 +79,7 @@ class IGMM(GMM):
                  max_step_components=30,
                  max_components=60,
                  a_split=0.8,
-                 forgetting_factor=0.05,
+                 forgetting_factor=DynamicParameter(0.05),
                  x_dims=None,
                  y_dims=None,
                  plot=False, plot_dims=[0, 1]):
@@ -82,6 +134,7 @@ class IGMM(GMM):
 
             weights_lt = self.weights_
             weights_lt = (self.weights_.sum() - self.params['forgetting_factor'].get_value()) * weights_lt  # Regularization to keep sum(w)=1.0
+
             self.weights_ = weights_lt
 
             gmm_new = copy.deepcopy(self.short_term_model)
@@ -726,58 +779,3 @@ def split_gaussian(gauss, a):  # Supervise that all the values here are real
 
     return {'covariance': covar, 'mean': mean1, 'weight': weight}, {'covariance': covar, 'mean': mean2,
                                                                     'weight': weight}
-
-class DynamicParameter(object):
-    def __init__(self, *args, **conf):
-        self.default_params()
-        if len(args) > 1:
-            raise ValueError
-        elif len(args) == 1:
-            if isinstance(args[0], float):
-                self.values = args[0]
-        elif len(conf.keys())>0:
-            self.conf['is_constant'] = False
-            for key in conf.keys():
-                self.conf[key] = conf[key]
-            if self.conf['function'] is 'log':
-                self.log_evolution()
-            elif self.conf['function'] is 'linear':
-                self.linear_evolution()
-        else:
-            self.default_params()
-
-    def log_evolution(self):
-        init_val = self.conf['init']
-        end_val = self.conf['end']
-        steps = self.conf['steps']
-        self.values = np.logspace(np.log(init_val), np.log(end_val), num=steps, base=np.exp(1))
-        self.idx = -1
-        self.conf['max_idx'] = steps - 1
-
-    def linear_evolution(self):
-        init_val = self.conf['init']
-        end_val = self.conf['end']
-        steps = self.conf['steps']
-        self.values = np.linspace(init_val, end_val, num=steps)
-        self.idx = -1
-        self.conf['max_idx'] = steps - 1
-
-    def default_params(self):
-        self.conf = {'is_constant':True}
-        self.values = 0.05
-
-    def get_value(self):
-        if self.conf['is_constant']:
-            return copy.copy(self.values)
-        else:
-            self.idx += 1
-            if self.idx >self.conf['max_idx']:
-                self.conf['is_constant'] = True
-                self.values = copy.copy(self.values[-1])
-                return self.get_value()
-            return copy.copy(self.values[self.idx])
-
-    def __print__(self):
-        return str(self.value())
-
-

@@ -68,18 +68,22 @@ class DynamicParameter(object):
             return copy.copy(self.values[self.idx])
 
     def generate_log(self):
-        log = 'type: DynamicParameter\n'
+        log = 'type: DynamicParameter,'
         for key in self.conf.keys():
             try:
                 attr_log = self.conf[key].generate_log()
-                log+=(key + ': {\n')
+                log+=(key + ': {')
                 log+=(attr_log)
-                log+=('}\n')
+                log+=('}')
+                log = log.replace('\n}', '}')
             except IndexError:
-                print("INDEX ERROR in IGMM log generation")
+                print("INDEX ERROR in DynamicParamater log generation")
             except AttributeError:
-                log+=(key + ': ' + str(self.conf[key]) + '\n')
-        return log
+                log+=(key + ': ' + str(self.conf[key]) + ',')
+        if log[-1] == ',':
+            return log[:-1]
+        else:
+            return log
 
     def __print__(self):
         return str(self.value())
@@ -281,8 +285,9 @@ class IGMM(GMM):
                 dist += [linalg.norm(y_tmp - mu[y_dims])]
             dist = np.array(dist).flatten()
             voters_idx = dist.argsort()[:knn]
-
+            # print(voters_idx[0])
             gmm = self
+            # print(len(gmm.means_))
             Mu_tmp = gmm.means_[voters_idx]
             Sigma_tmp = gmm.covariances_[voters_idx]
             Sigma_yy_inv_tmp = self.SIGMA_YY_inv[voters_idx]  # _get_covars()[voters_idx]
@@ -670,6 +675,9 @@ class IGMM(GMM):
             axes.set_title(title)
         return axes
 
+    def save(self,file_prefix=''):
+        save_gmm(self, file_prefix=file_prefix)
+
 def load_gmm(file_prefix):
     file_weights = file_prefix + 'GMM_weights.txt'
     file_covariances = file_prefix + 'GMM_covariances.txt'
@@ -685,11 +693,12 @@ def load_gmm(file_prefix):
         Means.append(raw_Means[:, i])
         Sigma.append(raw_Sigma[:, i * n_dims:(i + 1) * n_dims])
 
-    gmm = GMM()
+    gmm = IGMM()
     gmm.weights_ = Weights
-    gmm.means_ = Means
-    gmm.covariances_ = Sigma
+    gmm.means_ = np.array(Means)
+    gmm.covariances_ = np.array(Sigma)
     gmm.n_components = n_components
+
     return gmm
 
 def save_gmm(gmm, file_prefix=''):

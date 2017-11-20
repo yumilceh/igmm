@@ -15,8 +15,78 @@ from scipy import linalg as LA
 from numpy import linalg
 
 
-import Tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+class DynamicParameter(object):
+    def __init__(self, *args, **conf):
+        self.default_params()
+        if len(args) > 1:
+            raise ValueError
+        elif len(args) == 1:
+            if isinstance(args[0], float):
+                self.values = args[0]
+        elif len(conf.keys())>0:
+            self.conf['is_constant'] = False
+            for key in conf.keys():
+                self.conf[key] = conf[key]
+            if self.conf['function'] is 'log':
+                self.log_evolution()
+            elif self.conf['function'] is 'linear':
+                self.linear_evolution()
+        else:
+            self.default_params()
+
+    def log_evolution(self):
+        init_val = self.conf['init']
+        end_val = self.conf['end']
+        steps = self.conf['steps']
+        self.values = np.logspace(np.log(init_val), np.log(end_val), num=steps, base=np.exp(1))
+        self.idx = -1
+        self.conf['max_idx'] = steps - 1
+
+    def linear_evolution(self):
+        init_val = self.conf['init']
+        end_val = self.conf['end']
+        steps = self.conf['steps']
+        self.values = np.linspace(init_val, end_val, num=steps)
+        self.idx = -1
+        self.conf['max_idx'] = steps - 1
+
+    def default_params(self):
+        self.conf = {'is_constant':True}
+        self.values = 0.05
+
+    def get_value(self):
+        if self.conf['is_constant']:
+            return copy.copy(self.values)
+        else:
+            self.idx += 1
+            if self.idx >self.conf['max_idx']:
+                self.conf['is_constant'] = True
+                self.values = copy.copy(self.values[-1])
+                return self.get_value()
+            return copy.copy(self.values[self.idx])
+
+    def generate_log(self):
+        log = 'type: DynamicParameter,'
+        for key in self.conf.keys():
+            try:
+                attr_log = self.conf[key].generate_log()
+                log+=(key + ': {')
+                log+=(attr_log)
+                log+=('}')
+                log = log.replace('\n}', '}')
+            except IndexError:
+                print("INDEX ERROR in DynamicParamater log generation")
+            except AttributeError:
+                log+=(key + ': ' + str(self.conf[key]) + ',')
+        if log[-1] == ',':
+            return log[:-1]
+        else:
+            return log
+
+    def __print__(self):
+        return str(self.value())
 
 class IGMM(GMM):
     '''
@@ -27,11 +97,16 @@ class IGMM(GMM):
                  max_step_components=30,
                  max_components=60,
                  a_split=0.8,
-                 forgetting_factor=0.05,
+                 forgetting_factor=DynamicParameter(0.05),
+                 x_dims=None,
+                 y_dims=None,
                  plot=False, plot_dims=[0, 1]):
 
         GMM.__init__(self, n_components=min_components,
                      covariance_type='full')
+
+        if isinstance(forgetting_factor, float):
+            forgetting_factor = DynamicParameter(forgetting_factor)
 
         self.params = {'init_components': min_components,
                        'max_step_components': max_step_components,
@@ -39,7 +114,13 @@ class IGMM(GMM):
                        'a_split': a_split,
                        'plot': plot,
                        'plot_dims': plot_dims,
-                       'forgetting_factor': forgetting_factor}
+                       'forgetting_factor': forgetting_factor,
+                       'x_dims': x_dims,
+                       'y_dims': y_dims,
+                       'infer_fixed': False}
+
+        if x_dims is not None and y_dims is not None:
+            self.params['infer_fixed'] = True
 
         self.type='IGMM'
         self.initialized=False
@@ -66,12 +147,12 @@ class IGMM(GMM):
             self.short_term_model.get_best_gmm(data,
                                                lims=[self.params['init_components'], self.params['max_step_components']])
             weights_st = self.short_term_model.weights_
-            weights_st = self.params['forgetting_factor'] * weights_st
+            weights_st = self.params['forgetting_factor'].get_value() * weights_st
             self.short_term_model.weights_ = weights_st
 
             weights_lt = self.weights_
-            weights_lt = (self.weights_.sum() - self.params[
-                'forgetting_factor']) * weights_lt  # Regularization to keep sum(w)=1.0
+            weights_lt = (self.weights_.sum() - self.params['forgetting_factor'].get_value()) * weights_lt  # Regularization to keep sum(w)=1.0
+
             self.weights_ = weights_lt
 
             gmm_new = copy.deepcopy(self.short_term_model)
@@ -117,6 +198,27 @@ class IGMM(GMM):
                                                                         axes=self.ax_old[2])
                 self.ax_old[2].autoscale_view()
                 self.fig_old.canvas.draw()
+
+        if self.params['infer_fixed']:
+            y_dims = self.params['y_dims']
+            x_dims = self.params['x_dims']
+            SIGMA_YY_inv = np.zeros((self.n_components,len(y_dims),len(y_dims)))
+            SIGMA_XY = np.zeros((self.n_components,len(x_dims),len(y_dims)))
+
+            for k, (Mu, Sigma) in enumerate(zip(self.means_, self.covariances_)):
+                Sigma_yy = Sigma[:, y_dims]
+                Sigma_yy = Sigma_yy[y_dims, :]
+
+                Sigma_xy = Sigma[x_dims, :]
+                Sigma_xy = Sigma_xy[:, y_dims]
+                Sigma_yy_inv = linalg.inv(Sigma_yy)
+
+                SIGMA_YY_inv[k,:,:] = Sigma_yy_inv
+                SIGMA_XY[k,:, :] = Sigma_xy
+
+            self.SIGMA_YY_inv = SIGMA_YY_inv
+            self.SIGMA_XY = SIGMA_XY
+
 
     def get_best_gmm(self, data, lims=[1, 10]):
         lowest_bic = np.infty
@@ -176,48 +278,91 @@ class IGMM(GMM):
         """
             This method returns the value of x that maximaze the probability P(x|y)
         """
-        y_tmp = np.array(y)
-        dist = []
-        for mu in self.means_:
-            dist += [linalg.norm(y_tmp - mu[y_dims])]
-        dist = np.array(dist).flatten()
-        voters_idx = dist.argsort()[:knn]
+        if self.params['infer_fixed']:
+            y_tmp = np.array(y)
+            dist = []
+            for mu in self.means_:
+                dist += [linalg.norm(y_tmp - mu[y_dims])]
+            dist = np.array(dist).flatten()
+            voters_idx = dist.argsort()[:knn]
+            # print(voters_idx[0])
+            gmm = self
+            # print(len(gmm.means_))
+            Mu_tmp = gmm.means_[voters_idx]
+            Sigma_tmp = gmm.covariances_[voters_idx]
+            Sigma_yy_inv_tmp = self.SIGMA_YY_inv[voters_idx]  # _get_covars()[voters_idx]
+            Sigma_xy_tmp = self.SIGMA_XY[voters_idx]
 
-        gmm = self
-        Mu_tmp = gmm.means_[voters_idx]
-        Sigma_tmp = gmm.covariances_[voters_idx] #_get_covars()[voters_idx]
+            y = np.mat(y)
+            n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims)) #secure (x,y)_dims to avoid errors
+            likely_x = np.mat(np.zeros((len(x_dims), knn)))
+            sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
+            p_xy = np.mat(np.zeros((knn, 1)))
 
-        y = np.mat(y)
-        n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims))
-        likely_x = np.mat(np.zeros((len(x_dims), knn)))
-        sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
-        p_xy = np.mat(np.zeros((knn, 1)))
+            for k, (Mu, Sigma_yy_inv, Sigma_xy, Sigma) in enumerate(zip(Mu_tmp, Sigma_yy_inv_tmp, Sigma_xy_tmp, Sigma_tmp)):
+                Mu = np.transpose(Mu)
+                # ----------------------------------------------- Sigma=np.mat(Sigma)
+                tmp1 = Sigma_yy_inv * np.transpose(y - Mu[y_dims])
+                tmp2 = np.transpose(Sigma_xy * tmp1)
+                likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
 
-        for k, (Mu, Sigma) in enumerate(zip(Mu_tmp, Sigma_tmp)):
-            Mu = np.transpose(Mu)
-            # ----------------------------------------------- Sigma=np.mat(Sigma)
-            Sigma_yy = Sigma[:, y_dims]
-            Sigma_yy = Sigma_yy[y_dims, :]
+                sm[x_dims, k] = likely_x[:, k].flatten()
+                sm[y_dims, k] = y.flatten()
 
-            Sigma_xy = Sigma[x_dims, :]
-            Sigma_xy = Sigma_xy[:, y_dims]
-            tmp1 = linalg.inv(Sigma_yy) * np.transpose(y - Mu[y_dims])
-            tmp2 = np.transpose(Sigma_xy * tmp1)
-            likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
+                tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma)))) #It is possible to predifine
+                                                                                                  #the determinant too
+                tmp5 = np.transpose(sm[:, k]) - (Mu)
+                tmp6 = linalg.inv(Sigma)
+                tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
+                p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
 
-            sm[x_dims, k] = likely_x[:, k].flatten()
-            sm[y_dims, k] = y.flatten()
+            k_ok = np.argmax(p_xy)
+            x = likely_x[:, k_ok]
 
-            tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma))))
-            tmp5 = np.transpose(sm[:, k]) - (Mu)
-            tmp6 = linalg.inv(Sigma)
-            tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
-            p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
+            return np.array(x.transpose())[0]
+        else:
+            y_tmp = np.array(y)
+            dist = []
+            for mu in self.means_:
+                dist += [linalg.norm(y_tmp - mu[y_dims])]
+            dist = np.array(dist).flatten()
+            voters_idx = dist.argsort()[:knn]
 
-        k_ok = np.argmax(p_xy)
-        x = likely_x[:, k_ok]
+            gmm = self
+            Mu_tmp = gmm.means_[voters_idx]
+            Sigma_tmp = gmm.covariances_[voters_idx] #_get_covars()[voters_idx]
 
-        return np.array(x.transpose())[0]
+            y = np.mat(y)
+            n_dimensions = np.amax(len(x_dims)) + np.amax(len(y_dims))
+            likely_x = np.mat(np.zeros((len(x_dims), knn)))
+            sm = np.mat(np.zeros((len(x_dims) + len(y_dims), knn)))
+            p_xy = np.mat(np.zeros((knn, 1)))
+
+            for k, (Mu, Sigma) in enumerate(zip(Mu_tmp, Sigma_tmp)):
+                Mu = np.transpose(Mu)
+                # ----------------------------------------------- Sigma=np.mat(Sigma)
+                Sigma_yy = Sigma[:, y_dims]
+                Sigma_yy = Sigma_yy[y_dims, :]
+
+                Sigma_xy = Sigma[x_dims, :]
+                Sigma_xy = Sigma_xy[:, y_dims]
+                tmp1 = linalg.inv(Sigma_yy) * np.transpose(y - Mu[y_dims])
+                tmp2 = np.transpose(Sigma_xy * tmp1)
+                likely_x[:, k] = np.transpose(Mu[x_dims] + tmp2)
+
+                sm[x_dims, k] = likely_x[:, k].flatten()
+                sm[y_dims, k] = y.flatten()
+
+                tmp4 = 1 / (np.sqrt(((2.0 * np.pi) ** n_dimensions) * np.abs(linalg.det(Sigma))))
+                tmp5 = np.transpose(sm[:, k]) - (Mu)
+                tmp6 = linalg.inv(Sigma)
+                tmp7 = np.exp((-1.0 / 2.0) * (tmp5 * tmp6 * np.transpose(tmp5)))  # Multiply time GMM.Priors????
+                p_xy[k, :] = np.reshape(tmp4 * tmp7, (1))
+
+            k_ok = np.argmax(p_xy)
+            x = likely_x[:, k_ok]
+
+            return np.array(x.transpose())[0]
 
     def merge_similar_gaussians_in_gmm_full(self, gmm2):
         # Selecting high related Gaussians to be mixtured
@@ -533,13 +678,56 @@ class IGMM(GMM):
     def getGaussians(self):
         return (self.means_, self.covariances_, self.weights_)
 
+    def save(self,file_prefix=''):
+        save_gmm(self, file_prefix=file_prefix)
+
+def load_gmm(file_prefix):
+    file_weights = file_prefix + 'GMM_weights.txt'
+    file_covariances = file_prefix + 'GMM_covariances.txt'
+    file_means = file_prefix + 'GMM_means.txt'
+    Weights = np.loadtxt(file_weights)
+    raw_Means = np.loadtxt(file_means)
+    raw_Sigma = np.loadtxt(file_covariances)
+    n_components = len(Weights)
+    n_dims =  raw_Means.shape[0]
+    Means = []
+    Sigma = []
+    for i in range(n_components):
+        Means.append(raw_Means[:, i])
+        Sigma.append(raw_Sigma[:, i * n_dims:(i + 1) * n_dims])
+
+    gmm = IGMM()
+    gmm.weights_ = Weights
+    gmm.means_ = np.array(Means)
+    gmm.covariances_ = np.array(Sigma)
+    gmm.n_components = n_components
+
+    return gmm
+
+def save_gmm(gmm, file_prefix=''):
+    file_weights = file_prefix + 'GMM_weights.txt'
+    file_covariances = file_prefix + 'GMM_covariances.txt'
+    file_means = file_prefix + 'GMM_means.txt'
+    n_components = gmm.n_components
+    n_dims = len(gmm.means_[0])
+
+    raw_Means = np.zeros((n_dims, n_components))
+    raw_Covariances = np.zeros((n_dims, n_dims * n_components))
+    raw_Weights = np.zeros((1, n_components))
+
+    for k, (Weights, Means, Covariances) in enumerate(zip(gmm.weights_, gmm.means_, gmm.covariances_)):
+        raw_Means[:, k] = Means
+        raw_Covariances[:, k * n_dims:(k + 1) * n_dims] = Covariances
+        raw_Weights[0, k] = Weights
+    np.savetxt(file_weights, raw_Weights, fmt='%f')
+    np.savetxt(file_means, raw_Means, fmt='%f')
+    np.savetxt(file_covariances, raw_Covariances, fmt='%f')
 
 def get_KL_divergence(gauss1, gauss2):
     try:
         detC1 = LA.det(gauss1['covariance'])
     except ValueError:
         x = raw_input("Broken")
-        pass
         pass
 
     detC2 = LA.det(gauss2['covariance'])

@@ -53,3 +53,8 @@ class IGMM_COND(IGMM):
         full_samples[:,nan_cols] = samples
 
         return full_samples
+
+    def get_score(self, data):
+        """ returns the log likelihood for the recent model given the data, either as normal likelihood or as log likelihood (default)"""
+
+        return pypr_gmm.gm_log_likelihood(data, self.means_, self.covariances_, self.weights_)

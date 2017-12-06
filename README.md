@@ -6,4 +6,4 @@ Prerequisites:
   ->Scipy
   ->Sklearn
  
--To execute the executable files add the igmm directory to your python path, or otherwise, copy all the files to the paren directory 'igmm'
+-To execute the executable files add the igmm directory to your python path, or otherwise, move the executables to the parent directory 'igmm'

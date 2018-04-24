@@ -143,15 +143,19 @@ class IGMM(GMM):
                                                           axes=self.ax_old[0])
                 self.ax_old[0].autoscale_view()
 
+            ff_tmp = self.params['forgetting_factor'].get_value()
+
             self.short_term_model = IGMM(self.params['init_components'])
-            self.short_term_model.get_best_gmm(data,
-                                               lims=[self.params['init_components'], self.params['max_step_components']])
+            self.short_term_model.get_best_gmm(data,lims=[1, self.params['max_step_components']])
+                                               # lims=[self.params['init_components'], self.params['max_step_components']])
             weights_st = self.short_term_model.weights_
-            weights_st = self.params['forgetting_factor'].get_value() * weights_st
+            weights_st = ff_tmp * weights_st
             self.short_term_model.weights_ = weights_st
 
+
+            print(ff_tmp)
             weights_lt = self.weights_
-            weights_lt = (self.weights_.sum() - self.params['forgetting_factor'].get_value()) * weights_lt  # Regularization to keep sum(w)=1.0
+            weights_lt = (self.weights_.sum() - ff_tmp) * weights_lt  # Regularization to keep sum(w)=1.0
 
             self.weights_ = weights_lt
 
@@ -181,7 +185,8 @@ class IGMM(GMM):
 
                 self.fig_old.canvas.draw()
         else:
-            self.get_best_gmm(data, lims=[self.params['init_components'], self.params['max_step_components']])
+            #self.get_best_gmm(data, lims=[self.params['init_components'], self.params['max_step_components']])
+            self.get_best_gmm(data, lims=[self.params['init_components'],self.params['init_components']])
             self.short_term_model = GMM(self.n_components)
             self.initialized = True
             if self.params['plot']:
@@ -247,8 +252,8 @@ class IGMM(GMM):
 
             except IndexError:
                 pass
-        if best_gmm <= 6: # The derivative does not make sense here
-            best_gmm = np.array(bic).argmin() + lims[0]
+        # if best_gmm <= 6: # The derivative does not make sense here  #THS MUST BE CHECKED
+        best_gmm = np.array(bic).argmin() + lims[0]
 
         gmm = GMM(n_components=best_gmm,
                       covariance_type='full')

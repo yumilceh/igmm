@@ -8,26 +8,34 @@ to sample conditionally from the gaussians. pypr is used for this.
 """
 
 from igmm import IGMM
+from igmm import DynamicParameter
 import pypr.clustering.gmm as pypr_gmm
 import numpy as np
 
 class IGMM_COND(IGMM):
-    def __init__(self, min_components=3,
-                 max_step_components=30,
-                 max_components=60,
-                 a_split=0.8,
-                 forgetting_factor=0.05,
-                 plot=False, plot_dims=[0, 1]):
-        IGMM.__init__(self, min_components,
-                 max_step_components,
-                 max_components,
-                 a_split, forgetting_factor,
-                 plot, plot_dims)
 
     def cond_dist(self, Y):
+        """ Returns the conditional distribution with some fixed dimensions.
+
+            Keyword arguments:
+            Y -- A numpy vector of the same length as the input data samples with either
+                values or np.nan. A two dimensional input array could be
+                np.array([3, np.nan]). The gmm would be sampled with a fixed first
+                dimension of 3.
+        """
         return pypr_gmm.cond_dist(np.array(Y), self.means_, self.covariances_, self.weights_)
 
     def sample_cond_dist(self, Y, n_samples):
+        """ Returns conditional samples from the gaussian mixture model.
+
+        Keyword arguments:
+        Y -- A numpy vector of the same length as the input data samples with either
+            values or np.nan. A two dimensional input array could be
+            np.array([3, np.nan]). The gmm would be sampled with a fixed first
+            dimension of 3.
+        n_samples -- Number of requested samples
+        """
+
 
         # get the conditional distribution
         (con_means, con_covariances, con_weights) = self.cond_dist(Y)
@@ -45,3 +53,8 @@ class IGMM_COND(IGMM):
         full_samples[:,nan_cols] = samples
 
         return full_samples
+
+    def get_score(self, data):
+        """ returns the log likelihood for the recent model given the data, either as normal likelihood or as log likelihood (default)"""
+
+        return pypr_gmm.gm_log_likelihood(data, self.means_, self.covariances_, self.weights_)

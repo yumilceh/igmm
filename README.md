@@ -27,4 +27,3 @@ Additional prerequisites for igmm_cond:
 
 ### References ###
 
-DIVA Vocal tract. Python migration. Implemented as part of:
